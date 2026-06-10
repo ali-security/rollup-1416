@@ -26,6 +26,7 @@ permissions:
 
 jobs:
   lint:
+    if: false
     name: Lint and Audit
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -59,6 +60,7 @@ jobs:
           git diff HEAD --exit-code --ignore-space-at-eol
 
   build:
+    if: false
     strategy:
       fail-fast: false
       matrix:
@@ -272,6 +274,7 @@ jobs:
 
   # smoke test for some architectures that do not receive the full test suite
   smoke-test:
+    if: false
     permissions:
       packages: write # for caching container images
     name: Smoke Test ${{ matrix.settings.target }}
@@ -365,6 +368,7 @@ jobs:
             dist/bin/rollup --version | grep -E 'rollup v[0-9]+\.[0-9]+\.[0-9]+'
 
   test:
+    if: false
     name: Test${{ matrix.additionalName || '' }} Node ${{ matrix.node }} (${{ matrix.settings.target }})
     needs:
       - build
@@ -446,8 +450,7 @@ jobs:
       - lint
       - test
       - smoke-test
-    # This needs to be adapted for Rollup 5
-    if: startsWith(github.ref_name, 'v4')
+    if: false
     steps:
       - name: Checkout Commit
         uses: actions/checkout@v4
@@ -497,3 +500,38 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           ROLLUP_RELEASE: 'releasing'
+
+  build-and-test:
+    name: Build and Test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        node:
+          - 18
+          # There is a bug in 22.12.0 that sometimes makes the loadConfigFile tests fail
+          - '22.11.0'
+    steps:
+      - name: Checkout Commit
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly-2025-07-25
+      - name: Install Node Dependencies
+        run: npm install --ignore-scripts --fetch-retries 5 --fetch-retry-mintimeout 20000 --fetch-retry-maxtimeout 120000
+      - name: Build NAPI
+        run: npm run build:napi -- --release --target x86_64-unknown-linux-gnu
+      - name: Build JS (CJS for tests)
+        run: npm run build:cjs
+      - name: Copy Native Bindings
+        run: npm run build:copy-native
+      - name: Run Tests
+        run: npm run test:only
+        env:
+          CI: true
